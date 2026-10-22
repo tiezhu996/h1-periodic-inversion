@@ -3,7 +3,6 @@
 用法：python3 /app/main.py <observations.csv>
 """
 
-import bisect
 import csv
 import json
 import math
@@ -12,6 +11,9 @@ import sys
 PERIOD_MIN = 8.0
 PERIOD_MAX = 45.0
 GRID_POINTS = 900
+SCAN_DENSITY = 2.0
+REFINE_PEAK = False
+KEEP_SOURCE_TIMES = False
 
 
 def solve_three(matrix, rhs):
@@ -85,12 +87,32 @@ def resample(times, values):
     return uniform_t, uniform_y
 
 
+def refine_period(times, values, center, half_width):
+    left = max(1.0 / PERIOD_MAX, center - half_width)
+    right = min(1.0 / PERIOD_MIN, center + half_width)
+    ratio = (math.sqrt(5.0) - 1.0) / 2.0
+    x1 = right - ratio * (right - left)
+    x2 = left + ratio * (right - left)
+    f1 = linear_fit(times, values, x1)[3]
+    f2 = linear_fit(times, values, x2)[3]
+    for _ in range(35):
+        if f1 <= f2:
+            right, x2, f2 = x2, x1, f1
+            x1 = right - ratio * (right - left)
+            f1 = linear_fit(times, values, x1)[3]
+        else:
+            left, x1, f1 = x1, x2, f2
+            x2 = left + ratio * (right - left)
+            f2 = linear_fit(times, values, x2)[3]
+    return 1.0 / (0.5 * (left + right))
+
+
 def scan_period(times, values):
     start = times[0]
     span = times[-1] - start
     low = 1.0 / PERIOD_MAX
     high = 1.0 / PERIOD_MIN
-    step = 1.0 / (2.0 * span)
+    step = 1.0 / (SCAN_DENSITY * span)
     count = int(math.floor((high - low) / step))
     best_frequency = low
     best_rss = float("inf")
@@ -103,15 +125,20 @@ def scan_period(times, values):
         if rss < best_rss:
             best_frequency = frequency
             best_rss = rss
+    if REFINE_PEAK:
+        return refine_period(times, values, best_frequency, 1.5 * step)
     return 1.0 / best_frequency
 
 
 def analyze(path):
     times, values = read_rows(path)
-    uniform_t, uniform_y = resample(times, values)
-    period = scan_period(uniform_t, uniform_y)
+    if KEEP_SOURCE_TIMES:
+        fit_times, fit_values = times, values
+    else:
+        fit_times, fit_values = resample(times, values)
+    period = scan_period(fit_times, fit_values)
     frequency = 1.0 / period
-    offset, sin_coeff, cos_coeff, rss = linear_fit(uniform_t, uniform_y, frequency)
+    offset, sin_coeff, cos_coeff, rss = linear_fit(fit_times, fit_values, frequency)
     amplitude = math.hypot(sin_coeff, cos_coeff)
     phase = math.atan2(cos_coeff, sin_coeff)
     return {
@@ -119,7 +146,7 @@ def analyze(path):
         "amplitude": amplitude,
         "phase_rad": phase,
         "offset": offset,
-        "inlier_rms": math.sqrt(rss / len(uniform_y)),
+        "inlier_rms": math.sqrt(rss / len(fit_values)),
         "used_points": len(times),
     }
 

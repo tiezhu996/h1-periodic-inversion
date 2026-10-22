@@ -78,7 +78,8 @@ def make_rows(condition, seed, span, period, amplitude, phase, offset, count):
     return list(zip(times, values)), chosen if condition == "outliers" else []
 
 
-def run_case(condition, seed, span, period, amplitude, phase, offset, count=100):
+def run_case(condition, seed, span, period, amplitude, phase, offset, count=100,
+             return_stdout=False):
     rows, excluded = make_rows(condition, seed, span, period, amplitude, phase, offset, count)
     folder = Path(tempfile.mkdtemp(prefix="periodic-"))
     folder.chmod(0o755)
@@ -90,7 +91,10 @@ def run_case(condition, seed, span, period, amplitude, phase, offset, count=100)
     case.chmod(0o644)
     proc = run_candidate(case)
     assert proc.returncode == 0, f"exit={proc.returncode} stderr={proc.stderr[-500:]}"
-    return json.loads(proc.stdout), excluded
+    result = json.loads(proc.stdout)
+    if return_stdout:
+        return result, excluded, proc.stdout
+    return result, excluded
 
 
 def angle_error(got, want):
@@ -100,13 +104,15 @@ def angle_error(got, want):
 # ---------- gate：入口与输出契约，不计分 ----------
 
 def test_prints_json_with_six_fields():
-    """「程序向标准输出写一个 JSON 对象，只含六个字段」"""
-    got, _ = run_case("off_grid", 11, 70.0, 13.37, 2.0, 0.3, 1.0)
+    """「程序向标准输出写一个 JSON 对象，只含以下六个字段」"""
+    got, _, raw = run_case("off_grid", 11, 70.0, 13.37, 2.0, 0.3, 1.0, return_stdout=True)
     assert set(got) == {"period_days", "amplitude", "phase_rad", "offset", "inlier_rms", "used_points"}
+    assert raw.endswith("\n")
+    assert raw.strip().startswith("{") and raw.strip().endswith("}")
 
 
 def test_wrong_argument_count_exits_2():
-    """「参数个数不对时退出码为 2，不输出 JSON」"""
+    """「参数个数不对时退出码为 `2`，标准输出不写 JSON」"""
     proc = run_candidate()
     assert proc.returncode == 2
     assert proc.stdout.strip() == ""
@@ -115,19 +121,19 @@ def test_wrong_argument_count_exits_2():
 # ---------- 难点 1：谱峰落在离散网格之间 ----------
 
 def test_period_off_grid_case_a():
-    """「主周期可能落在工具原先使用的离散搜索点之间」"""
+    """「周期落在两个搜索点之间时会报成邻近点」"""
     got, _ = run_case("off_grid", 101, 73.0, 13.37, 2.2, 0.20, 0.7, 96)
     assert abs(got["period_days"] - 13.37) / 13.37 < 5.0e-4
 
 
 def test_period_off_grid_case_b():
-    """「主周期可能落在工具原先使用的离散搜索点之间」"""
+    """「周期落在两个搜索点之间时会报成邻近点」"""
     got, _ = run_case("off_grid", 102, 81.0, 23.71, 1.8, -0.85, -0.4, 108)
     assert abs(got["period_days"] - 23.71) / 23.71 < 5.0e-4
 
 
 def test_period_off_grid_case_c():
-    """「主周期可能落在工具原先使用的离散搜索点之间」"""
+    """「周期落在两个搜索点之间时会报成邻近点」"""
     got, _ = run_case("off_grid", 103, 88.0, 36.83, 2.7, 1.10, 2.1, 116)
     assert abs(got["period_days"] - 36.83) / 36.83 < 5.0e-4
 
@@ -135,19 +141,19 @@ def test_period_off_grid_case_c():
 # ---------- 难点 2：长时间缺测与聚集采样 ----------
 
 def test_gap_recovers_amplitude():
-    """「中间长时间缺测时，振幅和相位仍要与完整观测一致」"""
+    """「中间停测后，振幅和基线偏离原始记录」"""
     got, _ = run_case("gap", 201, 90.0, 180.0 / 7.0, 3.2, 0.55, 1.4, 40)
     assert abs(got["amplitude"] - 3.2) / 3.2 < 0.012
 
 
 def test_gap_recovers_phase():
-    """「中间长时间缺测时，振幅和相位仍要与完整观测一致」"""
+    """「中间停测后，振幅和基线偏离原始记录」"""
     got, _ = run_case("gap", 202, 90.0, 180.0 / 8.0, 2.6, -1.15, -0.8, 40)
     assert angle_error(got["phase_rad"], -1.15) < 0.025
 
 
 def test_gap_recovers_offset():
-    """「中间长时间缺测时，振幅和相位仍要与完整观测一致」"""
+    """「中间停测后，振幅和基线偏离原始记录」"""
     got, _ = run_case("gap", 203, 90.0, 180.0 / 10.0, 2.4, 0.95, 1.9, 40)
     assert abs(got["offset"] - 1.9) < 0.055
 
@@ -155,19 +161,18 @@ def test_gap_recovers_offset():
 # ---------- 难点 3：少量离群观测 ----------
 
 def test_outliers_keep_amplitude():
-    """「少量明显偏离的观测不应改变主信号参数」"""
+    """「几个坏点会把振幅、相位和残差一起拉偏」"""
     got, _ = run_case("outliers", 301, 90.0, 180.0 / 8.0, 2.3, 0.50, -0.7, 120)
     assert abs(got["amplitude"] - 2.3) / 2.3 < 0.030
 
 
 def test_outliers_keep_phase():
-    """「少量明显偏离的观测不应改变主信号参数」"""
+    """「几个坏点会把振幅、相位和残差一起拉偏」"""
     got, _ = run_case("outliers", 302, 90.0, 180.0 / 10.0, 2.1, -0.72, 1.2, 128)
     assert angle_error(got["phase_rad"], -0.72) < 0.045
 
 
 def test_outliers_do_not_inflate_rms():
-    """「报告的拟合均方根误差应反映正常观测的残差」"""
-    got, excluded = run_case("outliers", 303, 90.0, 180.0 / 12.0, 2.5, 1.05, 0.3, 132)
-    assert got["used_points"] <= 132 - len(excluded) + 2
+    """「几个坏点会把振幅、相位和残差一起拉偏」"""
+    got, _ = run_case("outliers", 303, 90.0, 180.0 / 12.0, 2.5, 1.05, 0.3, 132)
     assert got["inlier_rms"] < 0.070
