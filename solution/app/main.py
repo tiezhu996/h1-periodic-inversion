@@ -82,14 +82,14 @@ def robust_fit(times, values, frequency):
         updated = []
         for residual in result[4]:
             size = abs(residual)
-            updated.append(1.0 if size <= 1.5 * scale else 1.5 * scale / size)
+            updated.append(1.0 if size < 1.5 * scale else 1.5 * scale / size)
         change = max(abs(a - b) for a, b in zip(weights, updated))
         weights = updated
         result = weighted_fit(times, values, frequency, weights)
         if change < 1e-6:
             break
     scale = residual_scale(result[4])
-    keep = [abs(residual) <= 3.5 * scale for residual in result[4]]
+    keep = [abs(residual) < 3.5 * scale for residual in result[4]]
     if sum(keep) < 12:
         keep = [True] * count
     kept_t = [t for t, flag in zip(times, keep) if flag]
@@ -119,7 +119,7 @@ def refine_period(times, values, center, half_width):
     f1 = robust_objective(times, values, x1)
     f2 = robust_objective(times, values, x2)
     for _ in range(42):
-        if f1 <= f2:
+        if f1 < f2:
             right, x2, f2 = x2, x1, f1
             x1 = right - ratio * (right - left)
             f1 = robust_objective(times, values, x1)
