@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "gate_tests": [
+    "test_outputs.py::test_prints_json_with_six_fields",
+    "test_outputs.py::test_wrong_argument_count_exits_2"
+  ],
+  "tests": {
+    "test_outputs.py::test_period_off_grid_case_a": {"weight": 0.14, "rationale": "难点1 周期反演：短跨度、周期不在粗网格上，主结果误差会直接使报告不可用，难点合计 0.40"},
+    "test_outputs.py::test_period_off_grid_case_b": {"weight": 0.13, "rationale": "难点1 周期反演：换到中等跨度，确认不是只对一个周期碰巧成立"},
+    "test_outputs.py::test_period_off_grid_case_c": {"weight": 0.13, "rationale": "难点1 周期反演：长跨度且离网格更远，检查细化搜索的稳定性"},
+    "test_outputs.py::test_gap_recovers_amplitude": {"weight": 0.10, "rationale": "难点2 缺测处理：长缺口下振幅是主要业务量，难点合计 0.30"},
+    "test_outputs.py::test_gap_recovers_phase": {"weight": 0.10, "rationale": "难点2 缺测处理：相位对采样空缺更敏感，单独检查"},
+    "test_outputs.py::test_gap_recovers_offset": {"weight": 0.10, "rationale": "难点2 缺测处理：基线偏移随补点方式漂移，单独检查"},
+    "test_outputs.py::test_outliers_keep_amplitude": {"weight": 0.10, "rationale": "难点3 离群观测：异常点不能拉偏主振幅，难点合计 0.30"},
+    "test_outputs.py::test_outliers_keep_phase": {"weight": 0.10, "rationale": "难点3 离群观测：异常点不能改变过零点位置"},
+    "test_outputs.py::test_outliers_do_not_inflate_rms": {"weight": 0.10, "rationale": "难点3 离群观测：残差指标要反映正常观测，不能让少量异常点主导质量判断"}
+  }
+}
