@@ -10,10 +10,6 @@ import sys
 
 PERIOD_MIN = 8.0
 PERIOD_MAX = 45.0
-GRID_POINTS = 900
-SCAN_DENSITY = 10.0
-REFINE_PEAK = True
-KEEP_SOURCE_TIMES = True
 
 
 def solve_three(matrix, rhs):
@@ -110,24 +106,6 @@ def prepare_series(times, values):
     return [p[0] for p in pairs], [p[1] for p in pairs]
 
 
-def resample(times, values):
-    start = times[0]
-    span = times[-1] - start
-    uniform_t = [start + span * j / (GRID_POINTS - 1) for j in range(GRID_POINTS)]
-    uniform_y = []
-    cursor = 0
-    for t in uniform_t:
-        while cursor + 1 < len(times) and times[cursor + 1] < t:
-            cursor += 1
-        if cursor + 1 >= len(times):
-            uniform_y.append(values[-1])
-            continue
-        left_t, right_t = times[cursor], times[cursor + 1]
-        fraction = (t - left_t) / (right_t - left_t)
-        uniform_y.append(values[cursor] * (1.0 - fraction) + values[cursor + 1] * fraction)
-    return uniform_t, uniform_y
-
-
 def robust_objective(times, values, frequency):
     return robust_fit(times, values, frequency)[3]
 
@@ -157,7 +135,7 @@ def estimate_period(times, values):
     low = 1.0 / PERIOD_MAX
     high = 1.0 / PERIOD_MIN
     # D1-FIX-BEGIN
-    step = 1.0 / (SCAN_DENSITY * span)
+    step = 1.0 / (10.0 * span)
     # D1-FIX-END
     count = int(math.floor((high - low) / step))
     scanned = []
@@ -174,9 +152,9 @@ def estimate_period(times, values):
     best_frequency = min(
         candidates, key=lambda frequency: robust_objective(times, values, frequency)
     )
-    if REFINE_PEAK:
-        return refine_period(times, values, best_frequency, 1.5 * step)
-    return 1.0 / best_frequency
+    # D1-REFINE-BEGIN
+    return refine_period(times, values, best_frequency, 1.5 * step)
+    # D1-REFINE-END
 
 
 def read_rows(path):
@@ -191,15 +169,11 @@ def read_rows(path):
 
 def analyze(path):
     times, values = read_rows(path)
-    if KEEP_SOURCE_TIMES:
-        fit_times, fit_values = times, values
-    else:
-        fit_times, fit_values = resample(times, values)
-    period = estimate_period(fit_times, fit_values)
+    period = estimate_period(times, values)
     frequency = 1.0 / period
     # D3-FIX-BEGIN
     offset, sin_coeff, cos_coeff, inlier_rms, used_points, _ = robust_fit(
-        fit_times, fit_values, frequency
+        times, values, frequency
     )
     # D3-FIX-END
     amplitude = math.hypot(sin_coeff, cos_coeff)
